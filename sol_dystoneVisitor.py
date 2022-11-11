@@ -4,7 +4,6 @@ from gen.SolidityParser import SolidityParser
 class sol_dystoneVisitor(SolidityVisitor):
 
     def __init__(self):
-        self
         self.rindex = {}#키: 변수이름, 값:self.count 인덱스 # 0:me 1:me/all
         self.tlist = []#같은의미를 나타내는 tuple list
         self.stlist =[]#같은 의미를 나타내는 string tuple list ex) me, hospital과 같은 인자 저장
