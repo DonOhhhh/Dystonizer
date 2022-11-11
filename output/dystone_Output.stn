@@ -1,0 +1,51 @@
+pragma solidity ^0.2.0;
+
+contract MedStats {
+    final address hospital;
+    uint@_t2 count;
+    mapping(address!_t3=> bool@_t4)@_t5 risk;
+    
+	@c1
+    constructor() public {
+        hospital = me;
+        count = 0;
+    }
+
+    @c2
+    function record(address pat, bool@_t6>@_t7 r) public {
+        require(hospital == me);
+        risk[pat] = _reveal(r, @_t8);
+        count = _reveal(count + _reveal((r ? 1 : 0), @_t9), @_t10);
+    }
+
+    @c3
+    function check(bool@_t11>@_t12 r) {
+        require(_reveal(r == risk[me], @_t13));
+    }
+
+}
+pragma solidity ^0.2.0;
+
+contract MedStats {
+    final address hospital;
+    uint@_t2 count;
+    mapping(address!_t3=> bool@_t4)@_t5 risk;
+    
+	@c1
+    constructor() public {
+        hospital = me;
+        count = 0;
+    }
+
+    function record(address pat, bool@_t6>@_t4 r) public {
+        require(hospital == me);
+        risk[pat] = _reveal(r, @_t4);
+        count = _reveal(count + _reveal((r ? 1 : 0), @_t4), @_t2);
+    }
+
+    @c3
+    function check(bool@_t11>@_t12 r) {
+        require(_reveal(r == risk[me], @_t13));
+    }
+
+}
