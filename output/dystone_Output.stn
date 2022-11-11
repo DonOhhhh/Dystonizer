@@ -6,7 +6,7 @@ contract MedStats {
     mapping(address!_t3=> bool@_t4)@_t5 risk;
     
 	@c1
-    constructor() public {
+	constructor() public {
         hospital = me;
         count = 0;
     }
@@ -32,7 +32,7 @@ contract MedStats {
     mapping(address!_t3=> bool@_t4)@_t5 risk;
     
 	@c1
-    constructor() public {
+	constructor() public {
         hospital = me;
         count = 0;
     }

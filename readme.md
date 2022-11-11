@@ -2,13 +2,14 @@
 
 ## 개발환경
 - windows10
-- intellij
+- Pycharm
 
 ## 개발도구
-- Antlr : visitor
+- Plugin : ANTLR 4.10
+- Package : ANTLR 4.10
 
 ## 개발 언어
-- Python3.x
+- Python 3.x
 
 ## 입출력
 - 입력 : solidity파일
