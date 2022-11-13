@@ -10,8 +10,9 @@ class sol_dystoneVisitor(SolidityVisitor):
         self.stlist = []  # 같은 의미를 나타내는 string tuple list ex) me, hospital과 같은 인자 저장
         self.parent = []  # constraint 정보 배열
 
-        self.cname = []  # 전역 변수 인덱싱한 name
-        self.name = []  # 로컬 변수 인덱싱한 name
+        self.cname = []  # 전역 변수들의 이름을 저장함
+        self.name = []  # 로컬 변수들의 이름을 저장함.
+        self.fname = []  # 현재 파싱 중인 function의 이름을 저장함
 
         self.isUse = False  # reveal 사용 유무 체크
         self.isMapping = []  # mapping인 변수
@@ -53,20 +54,8 @@ class sol_dystoneVisitor(SolidityVisitor):
 
         print("union-find 결과 :", end=" ")
         print(self.parent)
-        print()
         # 초기화
-        self.rindex = {}
-        self.tlist = []
-        self.stlist = []
-
-        self.cname = []
-        self.name = []
-
-        self.isUse = False
-        self.isMapping = []
-
-        self.fcnt = 1
-        self.count = 1
+        self.__init__()
 
         cd2 = ""
         # parent 정보를 이용해 optimizer
@@ -77,7 +66,7 @@ class sol_dystoneVisitor(SolidityVisitor):
         # optimize 전과 후 동시 출력
         str = str1 + "\n" + str2
 
-        with open("../Dystonizer/output/dystone_Output.stn", "w") as text_file:
+        with open("output/dystone_Output.stn", "w") as text_file:
             text_file.write(str)
         print("Dystonizer done")
         return str
@@ -231,12 +220,16 @@ class sol_dystoneVisitor(SolidityVisitor):
         if tagflag:
             res = '@c' + str(self.fcnt) + "\n    "
         res += ctx.getChild(0).__str__() + " " + self.visitIdentifier(ctx.identifier())
+        # 현재 함수 이름을 저장함.
+        self.fname.append(self.visitIdentifier(ctx.identifier()))
+
         tpar = self.visitParameterList(ctx.parameterList()) + self.visitModifierList(ctx.modifierList())
 
         if ctx.getChildCount() > 5:  # return문 있는경우
             wplist = " " + self.visitReturnParameters(ctx.returnParameters()) + self.visitBlock(ctx.block())
         else:  # return 문 없는 경우
             wplist = self.visitBlock(ctx.block())
+
         # (4) (2)-(3)에 _reveal을 모두 확인해서, 형식인자에 ">"를 삽입한다.
         if '_reveal' in wplist:  # reveal이 사용된 경우 다시한번 파싱
             # 파라미터 추가
@@ -251,6 +244,8 @@ class sol_dystoneVisitor(SolidityVisitor):
         else:  # 사용되지 않은경우 기존 내용 더해주기
             res += tpar + wplist
 
+        # 현재 함수 이름을 삭제함.
+        self.fname.pop()
         self.fcnt += 1  # fluction 개수 카운팅
         self.isUse = False  # 하나의 function 탐색후 초기화
         return res
@@ -853,10 +848,6 @@ class sol_dystoneVisitor(SolidityVisitor):
         res = ''
         flag = True
         namelist = self.name
-        # parent 업데이트 유무 확인
-        isparent = False
-        if len(self.parent) != 0:
-            isparent = True
         # 파라미터 정보만 남게하기 위한 전처리
         tfa = self.removeReveal(fa)
         for n in namelist:
@@ -867,7 +858,8 @@ class sol_dystoneVisitor(SolidityVisitor):
                     # 중복 원소 처리
                     if (0, self.count) not in self.tlist:
                         self.tlist.append((0, self.count))
-                if isparent:
+                # parent 업데이트 유무 확인
+                if len(self.parent):
                     pc = self.parent[self.count]
                     if pc == 0 or pc == 1:
                         res += ctx.getChild(1).__str__() + "_reveal(" + fa + ", @_t" + str(
