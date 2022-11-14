@@ -34,6 +34,7 @@ class DystonizerBase(SolidityVisitor):
         res = re.sub(' [\[] ', '[', res)
         res = re.sub(' ]', ']', res)
         res = re.sub(' ,', ',', res)
+        res = re.sub('[+]', '+ ', res)
         return res
 
     def visitTerminal(self, node):
@@ -55,7 +56,7 @@ class DystonizerBase(SolidityVisitor):
         return res
 
     def visitSourceUnit(self, ctx: SolidityParser.SourceUnitContext):
-        res = self.removeRedundantSpace(self.getResult(ctx))
+        res = self.removeRedundantSpace(self.getResult(ctx).replace('<EOF>', ''))
         print(res)
         return res
 
@@ -294,10 +295,10 @@ class DystonizerBase(SolidityVisitor):
         return self.getResult(ctx)
 
 
-class DystonizerStage1(DystonizerBase):
+class DystonizerStep1_2(DystonizerBase):
 
     def __init__(self):
-        super().__init__()
+        super(DystonizerStep1_2, self).__init__()
         self.variable_num = 1
         self.function_num = 0
 
@@ -373,14 +374,25 @@ class DystonizerStage1(DystonizerBase):
         res = self.getResult(ctx)
         return '_reveal(' + res + ', ' + self.insertVariableNum() + ')'
 
-    # 함수 호출하는 인자를 _reveal로 감싸줌.
-    def visitFunctionCallArguments(self, ctx: SolidityParser.FunctionCallArgumentsContext):
+    # Eq expression에 me가 있다면 그냥 돌려주고 me가 없다면 _reveal로 감싸줌.
+    def visitEqExpr(self, ctx: SolidityParser.EqExprContext):
         res = self.getResult(ctx)
+        for child in ctx.expression():
+            tmp = self.getResult(child)
+            if tmp.rstrip() == 'me':
+                return res
         return '_reveal(' + res + ', ' + self.insertVariableNum() + ')'
 
 
-class DystonizerStage2(DystonizerBase):
+class DystonizerStep3(DystonizerStep1_2):
+
+    def __init__(self):
+        super(DystonizerStep3, self).__init__()
+        self.fOwner = {1: "hospital", 2: "hospital", 3: "c3"}
+
+    def insertFunctionNum(self):
+        self.function_num += 1
+        return '\n' + self.getTapStr() + '@' + str(self.fOwner[self.function_num]) + '\n'
 
     def visitSourceUnit(self, ctx: SolidityParser.SourceUnitContext):
         return super().visitSourceUnit(ctx)
-

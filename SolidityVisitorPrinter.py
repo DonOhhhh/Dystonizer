@@ -6,13 +6,12 @@ from antlr4 import *
 import os
 
 
-def convert(inputFile: FileStream):
-    lexer = SolidityLexer(inputFile)
+def convert(inputfile: FileStream):
+    lexer = SolidityLexer(inputfile)
     token_stream = CommonTokenStream(lexer)
-
     parser = SolidityParser(token_stream)
     tree = parser.sourceUnit()
-    DystonizerStage1().visit(tree)
+    DystonizerStep3().visit(tree)
 
 
 def main():
@@ -26,7 +25,7 @@ def main():
         convert(FileStream(f"input/{file}", encoding="utf-8"))
 
     for file in os.listdir(dstDir):
-        print("\noutput files...")
+        print("output files...")
         print(file)
 
 
