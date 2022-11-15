@@ -1,12 +1,18 @@
-class MappingVariable:
+class KeyValue:
     def __init__(self, key_type, key_owner, value_type, value_owner):
         self.key_type = key_type
         self.key_owner = key_owner
         self.value_type = value_type
         self.value_owner = value_owner
 
+    def getKeyOwner(self):
+        return self.key_owner
+
+    def getValueOwner(self):
+        return self.value_owner
+
 class Variable:
-    def __init__(self, idf, var_type, owner, delegation):
+    def __init__(self, idf, var_type, owner, delegation=None):
         self.identifier = idf
         self.type = var_type
         self.owner = owner
@@ -31,5 +37,5 @@ class Variable:
     def setDelegation(self, _del):
         self.delegation = _del
 
-    def setKeyValue(self, kv: MappingVariable):
-        self.key_value = kv
+    def setKeyValue(self, key_type, key_owner, value_type, value_owner):
+        self.key_value = KeyValue(key_type, key_owner, value_type, value_owner)

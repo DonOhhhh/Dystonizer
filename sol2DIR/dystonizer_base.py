@@ -1,8 +1,8 @@
 from SolidityParser import SolidityParser
 from gen.SolidityVisitor import SolidityVisitor
 from antlr4 import *
+from Variable import *
 from collections import defaultdict, deque
-from sol2DIR.Variable import Variable
 import re
 
 
@@ -356,68 +356,59 @@ class DystonizerStep1_2(DystonizerBase):
         self.vStackPop()
         return res
 
-    # 변수 관계만 저장
+    # 함수 시작시 Local 변수들 스택에 저장
     def visitParameterList(self, ctx: SolidityParser.ParameterListContext):
         # parameterList : '(' (params+=parameter (',' params+=parameter) * )? ')';
         self.vStackInit()
+        return self.getResult(ctx)
+
+    # 함수 리턴시 Local 변수들을 스택에서 모두 pop
+    def visitBlock(self, ctx: SolidityParser.BlockContext):
         res = self.getResult(ctx)
         self.vStackPop()
         return res
 
-    # 변수 관계만 저장
     def visitStateVariableDeclaration(self, ctx: SolidityParser.StateVariableDeclarationContext):
-        # stateVariableDeclaration : (keywords+=FinalKeyword)* annotated_type=annotatedTypeName (keywords+=ConstantKeyword)* idf=identifier('=' expr=expression)? ';';
-        at = self.visitAnnotatedTypeName(ctx.annotatedTypeName()).rstrip()
-        if at != 'address':
-            left, right = at.split('>') if at.find('=>') == -1 and at.find('>') != -1 else (at, None)
-            _owner = left[left.rfind('@') + 2:]
-            _delegation = right[2:] if right else _owner
-            _type = 'mapping' if 'mapping' in at else at[:at.find('@')]
-            _idf = self.visitIdentifier(ctx.identifier()).rstrip()
-            self.vStackPush(_idf, _type, _owner, _delegation)
-        # annotated_type의 중복 호출을 막기 위해 child가 annotated_type이면 at를 res에 더해주고 아니면 그냥 돌면서 더해줌.
+        # stateVariableDeclaration : ( keywords+=FinalKeyword )* annotated_type=annotatedTypeName ( keywords+=ConstantKeyword )* idf=identifier ('=' expr=expression)? ';' ;
+        idf = self.visitIdentifier(ctx.identifier()).rstrip()
+        at = self.visitAnnotatedTypeName(ctx=ctx.annotatedTypeName(), idf=idf)
         res = ''
         for child in ctx.children:
-            res += at + ' ' if isinstance(child, SolidityParser.AnnotatedTypeNameContext) else self.getResult(child)
-        return res
-
-    # def visitMapping(self, ctx: SolidityParser.MappingContext):
-    # mapping : 'mapping' '(' key_type=elementaryTypeName ('!'key_label=identifier)? '=>' value_type=annotatedTypeName ')' ;
-
-    # 변수 관계만 저장
-    def visitParameter(self, ctx: SolidityParser.ParameterContext):
-        # parameter : (keywords+= FinalKeyword)? annotated_type=annotatedTypeName idf=identifier?;
-        at = self.visitAnnotatedTypeName(ctx.annotatedTypeName()).rstrip()
-        if at != 'address':
-            left, right = at.split('>') if at.find('>') != -1 else (at, None)
-            _owner = left[left.rfind('@') + 2:]
-            _delegation = right[2:] if right else _owner
-            _type = 'mapping' if 'mapping' in at else at[:at.find('@')]
-            _idf = self.visitIdentifier(ctx.identifier()).rstrip()
-            self.vStackPush(_idf, _type, _owner, _delegation)
-        # annotated_type의 중복 호출을 막기 위해 child가 annotated_type이면 at를 res에 더해주고 아니면 그냥 돌면서 더해줌.
-        res = ''
-        for child in ctx.children:
-            res += at + ' ' if isinstance(child, SolidityParser.AnnotatedTypeNameContext) else self.getResult(child)
+            res += self.getResult(child) if not isinstance(child, SolidityParser.AnnotatedTypeNameContext) else at
         return res
 
     # address를 제외한 모든 변수에 소유자 번호를 붙여줌.
-    def visitTypeName(self, ctx: SolidityParser.TypeNameContext):
-        vartype = super().visitTypeName(ctx)
+    def visitTypeName(self, ctx: SolidityParser.TypeNameContext, idf=None):
+        # typeName : elementaryTypeName | userDefinedTypeName | mapping;
+        vartype = self.getResult(ctx)
+        key_type, key_owner, value_type, value_owner = None, None, None, None
         if vartype.strip() != 'address':
-            vartype = vartype.rstrip() + self.insertVariableNum()
+            vartype = vartype.replace(' ', '')
+            if 'mapping' in vartype:
+                _type = 'mapping'
+                key, value = vartype[vartype.find('(') + 1:-1].split('=>')
+                key_type, key_owner = key[:key.rfind('_') - 1], key[key.rfind('_') + 1:]
+                value_type, value_owner = value[:value.rfind('_') - 1], value[value.rfind('_') + 1:]
+            else:
+                _type = vartype
+            _owner = self.insertVariableNum()
+            if not self.isParentExist(ctx, SolidityParser.MappingContext):
+                self.vStackPush(idf, _type, re.search('t\\d+', _owner).group())
+                if 'mapping' in vartype:
+                    self.vStack[-1].setKeyValue(key_type, key_owner, value_type, value_owner)
+            vartype = _type + _owner
         return vartype
 
     # mapping 내에 있는 address에 소유자 번호를 붙여줌.
     def visitElementaryTypeName(self, ctx: SolidityParser.ElementaryTypeNameContext):
-        res = super().visitElementaryTypeName(ctx)
+        res = self.getResult(ctx)
         if res.strip() == 'address' and self.isParentExist(ctx, SolidityParser.MappingContext):
             res = res.rstrip() + self.insertVariableNum(isAddress=True)
         return res
 
     # parameter에 소유권자가 표시되어 있으면 위임 표시자를 추가해줌.
-    def visitAnnotatedTypeName(self, ctx: SolidityParser.AnnotatedTypeNameContext):
-        res = self.visitTypeName(ctx.typeName())
+    def visitAnnotatedTypeName(self, ctx: SolidityParser.AnnotatedTypeNameContext, idf=None):
+        res = self.visitTypeName(ctx.typeName(), idf)
         if self.isParentExist(ctx, SolidityParser.ParameterContext) and '@' in res:
             res = res.rstrip() + '>' + self.insertVariableNum()
         return res
