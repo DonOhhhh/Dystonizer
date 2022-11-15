@@ -2,7 +2,7 @@ from SolidityParser import SolidityParser
 from gen.SolidityVisitor import SolidityVisitor
 from antlr4 import *
 from collections import defaultdict, deque
-from Variable import Variable
+from sol2DIR.Variable import Variable
 import re
 
 
@@ -302,7 +302,8 @@ class DystonizerStep1_2(DystonizerBase):
         super(DystonizerStep1_2, self).__init__()
         self.variable_num = 1
         self.function_num = 0
-        self.stack = deque()
+        self.vStack = deque()
+        self.ESP = []
 
     def makeVariable(self, ID, var_type, owner):
         return Variable(ID, var_type, owner)
@@ -317,13 +318,25 @@ class DystonizerStep1_2(DystonizerBase):
         return prefix + str(self.variable_num) + ' '
 
     def isParentExist(self, queryCtx: ParserRuleContext, targetType) -> bool:
-        # queryCtx : 현재 노드
-        # targetType : 목표 타입
+        # queryCtx : 현재 노드, targetType : 목표 타입
         if type(queryCtx) == targetType:
             return True
         if queryCtx.parentCtx:
             return self.isParentExist(queryCtx.parentCtx, targetType)
         return False
+
+    def vStackInit(self):
+        self.ESP.append(0)
+
+    def vStackPush(self, _idf, _type, _owner, _delegation=None):
+        self.ESP[-1] += 1
+        self.vStack.append(Variable(_idf, _type, _owner, _delegation))
+
+    def vStackPop(self):
+        while self.ESP[-1]:
+            self.vStack.pop()
+            self.ESP[-1] -= 1
+        self.ESP.pop()
 
     def visitContractDefinition(self, ctx: SolidityParser.ContractDefinitionContext):
         # contractDefinition : ('contract') idf=identifier '{' parts+=contractPart* '}';
@@ -331,6 +344,8 @@ class DystonizerStep1_2(DystonizerBase):
         # contract identifier {
         for i in range(3):
             res += self.getResult(ctx.getChild(i))
+        # ESP에 count를 추가함.
+        self.vStackInit()
         # contractParts
         for i in range(3, ctx.getChildCount() - 1):
             # 만약 해당 노드의 자식 타입이 ConstructorDefinitionContext or FunctionDefinitionContext 이면 앞에 prefix를 덧붙임.
@@ -338,19 +353,57 @@ class DystonizerStep1_2(DystonizerBase):
                     isinstance(ctx.getChild(i).getChild(0), SolidityParser.FunctionDefinitionContext):
                 res += self.insertFunctionNum()
             res += self.getTapStr() + self.getResult(ctx.getChild(i))
-            # stack에서 변수들을 지워준다.
-            self.stack.pop()
         # }
         res += self.getResult(ctx.getChild(ctx.getChildCount() - 1))
+        # stack을 clear해줌.
+        self.vStackPop()
         return res
 
-
+    # 변수 관계만 저장
     def visitStateVariableDeclaration(self, ctx: SolidityParser.StateVariableDeclarationContext):
         # stateVariableDeclaration : (keywords+=FinalKeyword)* annotated_type=annotatedTypeName (keywords+=ConstantKeyword)* idf=identifier('=' expr=expression)? ';';
-        at = self.getResult(ctx.annotatedTypeName())
-        idf = self.getResult(ctx.identifier())
-        self.stack.append()
-        return self.getResult(ctx)
+        at = self.visitAnnotatedTypeName(ctx.annotatedTypeName()).rstrip()
+        if at != 'address':
+            left, right = at.split('>') if at.find('>') != -1 else (at, None)
+            _owner = left[left.rfind('@') + 2:]
+            _delegation = right[2:] if right else _owner
+            _type = 'mapping' if 'mapping' in at else at[:at.find('@')]
+            _idf = self.visitIdentifier(ctx.identifier()).rstrip()
+            self.vStackPush(_idf, _type, _owner, _delegation)
+        # annotated_type의 중복 호출을 막기 위해 child가 annotated_type이면 at를 res에 더해주고 아니면 그냥 돌면서 더해줌.
+        res = ''
+        for child in ctx.children:
+            res += at + ' ' if isinstance(child, SolidityParser.AnnotatedTypeNameContext) else self.getResult(child)
+        return res
+
+    # def visitMapping(self, ctx: SolidityParser.MappingContext):
+        # mapping : 'mapping' '(' key_type=elementaryTypeName ('!'key_label=identifier)? '=>' value_type=annotatedTypeName ')' ;
+
+
+    # 변수 관계만 저장
+    def visitParameterList(self, ctx: SolidityParser.ParameterListContext):
+        # parameterList : '(' (params+=parameter (',' params+=parameter) * )? ')';
+        self.vStackInit()
+        res = self.getResult(ctx)
+        self.vStackPop()
+        return res
+
+    # 변수 관계만 저장
+    def visitParameter(self, ctx: SolidityParser.ParameterContext):
+        # parameter : (keywords+= FinalKeyword)? annotated_type=annotatedTypeName idf=identifier?;
+        at = self.visitAnnotatedTypeName(ctx.annotatedTypeName()).rstrip()
+        if at != 'address':
+            left, right = at.split('>') if at.find('>') != -1 else (at, None)
+            _owner = left[left.rfind('@') + 2:]
+            _delegation = right[2:] if right else _owner
+            _type = 'mapping' if 'mapping' in at else at[:at.find('@')]
+            _idf = self.visitIdentifier(ctx.identifier()).rstrip()
+            self.vStackPush(_idf, _type, _owner, _delegation)
+        # annotated_type의 중복 호출을 막기 위해 child가 annotated_type이면 at를 res에 더해주고 아니면 그냥 돌면서 더해줌.
+        res = ''
+        for child in ctx.children:
+            res += at + ' ' if isinstance(child, SolidityParser.AnnotatedTypeNameContext) else self.getResult(child)
+        return res
 
     # address를 제외한 모든 변수에 소유자 번호를 붙여줌.
     def visitTypeName(self, ctx: SolidityParser.TypeNameContext):
