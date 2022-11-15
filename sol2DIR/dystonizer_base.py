@@ -1,7 +1,8 @@
 from SolidityParser import SolidityParser
 from gen.SolidityVisitor import SolidityVisitor
 from antlr4 import *
-from collections import defaultdict
+from collections import defaultdict, deque
+from Variable import Variable
 import re
 
 
@@ -301,6 +302,10 @@ class DystonizerStep1_2(DystonizerBase):
         super(DystonizerStep1_2, self).__init__()
         self.variable_num = 1
         self.function_num = 0
+        self.stack = deque()
+
+    def makeVariable(self, ID, var_type, owner):
+        return Variable(ID, var_type, owner)
 
     def insertFunctionNum(self):
         self.function_num += 1
@@ -320,10 +325,8 @@ class DystonizerStep1_2(DystonizerBase):
             return self.isParentExist(queryCtx.parentCtx, targetType)
         return False
 
-    def visitSourceUnit(self, ctx: SolidityParser.SourceUnitContext):
-        return super().visitSourceUnit(ctx)
-
     def visitContractDefinition(self, ctx: SolidityParser.ContractDefinitionContext):
+        # contractDefinition : ('contract') idf=identifier '{' parts+=contractPart* '}';
         res = ''
         # contract identifier {
         for i in range(3):
@@ -335,9 +338,19 @@ class DystonizerStep1_2(DystonizerBase):
                     isinstance(ctx.getChild(i).getChild(0), SolidityParser.FunctionDefinitionContext):
                 res += self.insertFunctionNum()
             res += self.getTapStr() + self.getResult(ctx.getChild(i))
+            # stack에서 변수들을 지워준다.
+            self.stack.pop()
         # }
         res += self.getResult(ctx.getChild(ctx.getChildCount() - 1))
         return res
+
+
+    def visitStateVariableDeclaration(self, ctx: SolidityParser.StateVariableDeclarationContext):
+        # stateVariableDeclaration : (keywords+=FinalKeyword)* annotated_type=annotatedTypeName (keywords+=ConstantKeyword)* idf=identifier('=' expr=expression)? ';';
+        at = self.getResult(ctx.annotatedTypeName())
+        idf = self.getResult(ctx.identifier())
+        self.stack.append()
+        return self.getResult(ctx)
 
     # address를 제외한 모든 변수에 소유자 번호를 붙여줌.
     def visitTypeName(self, ctx: SolidityParser.TypeNameContext):
@@ -393,6 +406,11 @@ class DystonizerStep3(DystonizerStep1_2):
     def insertFunctionNum(self):
         self.function_num += 1
         return '\n' + self.getTapStr() + '@' + str(self.fOwner[self.function_num]) + '\n'
+
+    # def insertVariableNum(self, isAddress=False):
+    #     self.variable_num += 1
+    #     prefix = '!_t' if isAddress else '@_t'
+    #     return prefix + str(self.vOwner[self.variable_num]) + ' '
 
     def visitSourceUnit(self, ctx: SolidityParser.SourceUnitContext):
         return super().visitSourceUnit(ctx)
