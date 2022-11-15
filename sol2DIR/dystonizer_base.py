@@ -302,8 +302,6 @@ class DystonizerStep1_2(DystonizerBase):
         super(DystonizerStep1_2, self).__init__()
         self.variable_num = 1
         self.function_num = 0
-        self.vStack = deque()
-        self.ESP = []
 
     def insertFunctionNum(self):
         self.function_num += 1
@@ -322,27 +320,12 @@ class DystonizerStep1_2(DystonizerBase):
             return self.isParentExist(queryCtx.parentCtx, targetType)
         return False
 
-    def vStackInit(self):
-        self.ESP.append(0)
-
-    def vStackPush(self, _idf, _type, _owner, _delegation=None):
-        self.ESP[-1] += 1
-        self.vStack.append(Variable(_idf, _type, _owner, _delegation))
-
-    def vStackPop(self):
-        while self.ESP[-1]:
-            self.vStack.pop()
-            self.ESP[-1] -= 1
-        self.ESP.pop()
-
     def visitContractDefinition(self, ctx: SolidityParser.ContractDefinitionContext):
         # contractDefinition : ('contract') idf=identifier '{' parts+=contractPart* '}';
         res = ''
         # contract identifier {
         for i in range(3):
             res += self.getResult(ctx.getChild(i))
-        # ESP에 count를 추가함.
-        self.vStackInit()
         # contractParts
         for i in range(3, ctx.getChildCount() - 1):
             # 만약 해당 노드의 자식 타입이 ConstructorDefinitionContext or FunctionDefinitionContext 이면 앞에 prefix를 덧붙임.
@@ -352,51 +335,14 @@ class DystonizerStep1_2(DystonizerBase):
             res += self.getTapStr() + self.getResult(ctx.getChild(i))
         # }
         res += self.getResult(ctx.getChild(ctx.getChildCount() - 1))
-        # stack을 clear해줌.
-        self.vStackPop()
-        return res
-
-    # 함수 시작시 Local 변수들 스택에 저장
-    def visitParameterList(self, ctx: SolidityParser.ParameterListContext):
-        # parameterList : '(' (params+=parameter (',' params+=parameter) * )? ')';
-        self.vStackInit()
-        return self.getResult(ctx)
-
-    # 함수 리턴시 Local 변수들을 스택에서 모두 pop
-    def visitBlock(self, ctx: SolidityParser.BlockContext):
-        res = self.getResult(ctx)
-        self.vStackPop()
-        return res
-
-    def visitStateVariableDeclaration(self, ctx: SolidityParser.StateVariableDeclarationContext):
-        # stateVariableDeclaration : ( keywords+=FinalKeyword )* annotated_type=annotatedTypeName ( keywords+=ConstantKeyword )* idf=identifier ('=' expr=expression)? ';' ;
-        idf = self.visitIdentifier(ctx.identifier()).rstrip()
-        at = self.visitAnnotatedTypeName(ctx=ctx.annotatedTypeName(), idf=idf)
-        res = ''
-        for child in ctx.children:
-            res += self.getResult(child) if not isinstance(child, SolidityParser.AnnotatedTypeNameContext) else at
         return res
 
     # address를 제외한 모든 변수에 소유자 번호를 붙여줌.
     def visitTypeName(self, ctx: SolidityParser.TypeNameContext, idf=None):
         # typeName : elementaryTypeName | userDefinedTypeName | mapping;
         vartype = self.getResult(ctx)
-        key_type, key_owner, value_type, value_owner = None, None, None, None
         if vartype.strip() != 'address':
-            vartype = vartype.replace(' ', '')
-            if 'mapping' in vartype:
-                _type = 'mapping'
-                key, value = vartype[vartype.find('(') + 1:-1].split('=>')
-                key_type, key_owner = key[:key.rfind('_') - 1], key[key.rfind('_') + 1:]
-                value_type, value_owner = value[:value.rfind('_') - 1], value[value.rfind('_') + 1:]
-            else:
-                _type = vartype
-            _owner = self.insertVariableNum()
-            if not self.isParentExist(ctx, SolidityParser.MappingContext):
-                self.vStackPush(idf, _type, re.search('t\\d+', _owner).group())
-                if 'mapping' in vartype:
-                    self.vStack[-1].setKeyValue(key_type, key_owner, value_type, value_owner)
-            vartype = _type + _owner
+            vartype = vartype.rstrip() + self.insertVariableNum()
         return vartype
 
     # mapping 내에 있는 address에 소유자 번호를 붙여줌.
@@ -442,15 +388,41 @@ class DystonizerStep3(DystonizerStep1_2):
     def __init__(self):
         super(DystonizerStep3, self).__init__()
         self.fOwner = {1: "hospital", 2: "hospital", 3: "c3"}
+        self.vStack = deque()
+        self.ESP = []
 
     def insertFunctionNum(self):
         self.function_num += 1
         return '\n' + self.getTapStr() + '@' + str(self.fOwner[self.function_num]) + '\n'
 
-    # def insertVariableNum(self, isAddress=False):
-    #     self.variable_num += 1
-    #     prefix = '!_t' if isAddress else '@_t'
-    #     return prefix + str(self.vOwner[self.variable_num]) + ' '
+    def vStackInit(self):
+        self.ESP.append(0)
 
-    def visitSourceUnit(self, ctx: SolidityParser.SourceUnitContext):
-        return super().visitSourceUnit(ctx)
+    def vStackPush(self, _idf, _type, _owner, _delegation=None):
+        self.ESP[-1] += 1
+        self.vStack.append(Variable(_idf, _type, _owner, _delegation))
+
+    def vStackClear(self):
+        while self.ESP[-1]:
+            self.vStack.pop()
+            self.ESP[-1] -= 1
+        self.ESP.pop()
+
+    # contractdefinition을 할 때 ESP를 push convert가 끝나면 stack clear, ESP를 pop한다.
+    def visitContractDefinition(self, ctx: SolidityParser.ContractDefinitionContext):
+        self.vStackInit()
+        res = super().visitContractDefinition(ctx)
+        self.vStackClear()
+        return res
+
+    # Function에 들어갈 때 ESP를 push
+    def visitParameterList(self, ctx: SolidityParser.ParameterListContext):
+        self.vStackInit()
+        return self.getResult(ctx)
+
+    # Function이 끝날 때 stack clear, ESP를 pop
+    def visitBlock(self, ctx: SolidityParser.BlockContext):
+        res = super().visitBlock(ctx)
+        self.vStackClear()
+        return res
+
