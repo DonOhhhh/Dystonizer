@@ -305,9 +305,6 @@ class DystonizerStep1_2(DystonizerBase):
         self.vStack = deque()
         self.ESP = []
 
-    def makeVariable(self, ID, var_type, owner):
-        return Variable(ID, var_type, owner)
-
     def insertFunctionNum(self):
         self.function_num += 1
         return '\n' + self.getTapStr() + '@c' + str(self.function_num) + '\n'
@@ -360,11 +357,19 @@ class DystonizerStep1_2(DystonizerBase):
         return res
 
     # 변수 관계만 저장
+    def visitParameterList(self, ctx: SolidityParser.ParameterListContext):
+        # parameterList : '(' (params+=parameter (',' params+=parameter) * )? ')';
+        self.vStackInit()
+        res = self.getResult(ctx)
+        self.vStackPop()
+        return res
+
+    # 변수 관계만 저장
     def visitStateVariableDeclaration(self, ctx: SolidityParser.StateVariableDeclarationContext):
         # stateVariableDeclaration : (keywords+=FinalKeyword)* annotated_type=annotatedTypeName (keywords+=ConstantKeyword)* idf=identifier('=' expr=expression)? ';';
         at = self.visitAnnotatedTypeName(ctx.annotatedTypeName()).rstrip()
         if at != 'address':
-            left, right = at.split('>') if at.find('>') != -1 else (at, None)
+            left, right = at.split('>') if at.find('=>') == -1 and at.find('>') != -1 else (at, None)
             _owner = left[left.rfind('@') + 2:]
             _delegation = right[2:] if right else _owner
             _type = 'mapping' if 'mapping' in at else at[:at.find('@')]
@@ -377,16 +382,7 @@ class DystonizerStep1_2(DystonizerBase):
         return res
 
     # def visitMapping(self, ctx: SolidityParser.MappingContext):
-        # mapping : 'mapping' '(' key_type=elementaryTypeName ('!'key_label=identifier)? '=>' value_type=annotatedTypeName ')' ;
-
-
-    # 변수 관계만 저장
-    def visitParameterList(self, ctx: SolidityParser.ParameterListContext):
-        # parameterList : '(' (params+=parameter (',' params+=parameter) * )? ')';
-        self.vStackInit()
-        res = self.getResult(ctx)
-        self.vStackPop()
-        return res
+    # mapping : 'mapping' '(' key_type=elementaryTypeName ('!'key_label=identifier)? '=>' value_type=annotatedTypeName ')' ;
 
     # 변수 관계만 저장
     def visitParameter(self, ctx: SolidityParser.ParameterContext):
