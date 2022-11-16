@@ -1,6 +1,4 @@
-from sol_dystoneVisitor import sol_dystoneVisitor
-from gen.SolidityLexer import SolidityLexer
-from sol2DIR.dystonizer_base import *
+from sol2DIR.Dystonizer import *
 
 from antlr4 import *
 import os
