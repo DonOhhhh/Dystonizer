@@ -3,7 +3,7 @@ from gen.SolidityVisitor import SolidityVisitor
 from gen.SolidityLexer import SolidityLexer
 from antlr4 import *
 from Variable import *
-from collections import defaultdict, deque
+from collections import defaultdict, OrderedDict, deque
 import re
 
 
@@ -487,7 +487,6 @@ class DystonizerStep3(DystonizerStep1_2):
         self.fOwner = {1: "hospital", 2: "hospital", 3: "c3"}
         self.vStack = deque()
         self.ESP = []
-        self.rawStringGetter = DystonizerBase()
 
     def insertFunctionNum(self):
         self.function_num += 1
@@ -506,8 +505,37 @@ class DystonizerStep3(DystonizerStep1_2):
             self.ESP[-1] -= 1
         self.ESP.pop()
 
-    def getContextTree(self, s: str):
-        return SolidityParser(CommonTokenStream(SolidityLexer(InputStream(s))))
+    # type@_t1 => type, _t1
+    def getAnnotatedType_Type_Owner(self, ats: str):
+        ats = ats.replace(' ', '')
+        _delegation = None
+        if '>@' in ats:
+            _delegation = ats[ats.rfind('>') + 2:]
+            ats = ats[:ats.rfind('>')]
+        _type, _value = ats[:ats.rfind('@')], ats[ats.rfind('@') + 1:]
+        return (_type, _value, _delegation)
+
+    # mapping(address!_t2=>bool@_t3) -> address, _t2, bool, _t3
+    def getMappingType_Key_Value(self, mappingTypeStr: str):
+        mappingTypeStr = mappingTypeStr.replace(' ', '')
+        key_value = mappingTypeStr[mappingTypeStr.find('(') + 1:-1]
+        key, value = key_value.split('=>')
+        _key_type, _key_owner = key.split('!')
+        _value_type, _value_owner = value.split('@')
+        return _key_type, _key_owner, _value_type, _value_owner
+
+    # stack에 Variable 객체를 쌓아줌.
+    def stackElemGenerator(self, _idf: str, _raw_type: str):
+        _type, _owner, _delegation = self.getAnnotatedType_Type_Owner(_raw_type)
+        result = Variable()
+        if 'mapping' in _type:
+            result.setKeyValue(*self.getMappingType_Key_Value(_type))
+            _type = 'mapping'
+        result.setIdentifier(_idf)
+        result.setType(_type)
+        result.setOwner(_owner)
+        result.setDelegation(_delegation)
+        return result
 
     # contractdefinition을 할 때 ESP를 push convert가 끝나면 stack clear, ESP를 pop한다.
     def visitContractDefinition(self, ctx: SolidityParser.ContractDefinitionContext):
@@ -523,36 +551,25 @@ class DystonizerStep3(DystonizerStep1_2):
 
     # Function이 끝날 때 stack clear, ESP를 pop
     def visitBlock(self, ctx: SolidityParser.BlockContext):
-        res = super().visitBlock(ctx)
+        res = self.getResult(ctx)
         self.vStackClear()
         return res
 
-    def getAnnotatedType_Type_Owner(self, annotatedTypeStr : str):
-        tree = self.getContextTree(annotatedTypeStr)
-        _type = self.rawStringGetter.getResult(tree.typeName())
-        _owner = self.rawStringGetter.getResult(tree.expression())
-        return _type, _owner
-
-    def getMappingType_Key_Value(self, mappingTypeStr: str):
-        tree = self.getContextTree(mappingTypeStr)
-        _key_type = self.rawStringGetter.getResult(tree.elementaryTypeName())
-        _key_owner = self.rawStringGetter.getResult(tree.identifier())
-        _value = self.rawStringGetter.getResult(tree.annotatedTypeName())
-        _value_type, _value_owner = self.getAnnotatedType_Type_Owner(_value)
-        return _key_type, _key_owner, _value_type, _value_owner
-
-    # Variable(idf, var_type, owner, delegation)
-    # KeyValue(key_type, key_owner, value_type, value_owner)
-    def stackElemGenerator(self, _idf: str, _annotated_type: str):
-        _type, _owner = self.getAnnotatedType_Type_Owner(_annotated_type)
-        result = Variable(_idf, _type, _owner)
-        if 'mapping' in _type:
-            result.setKeyValue(*self.getMappingType_Key_Value(_type))
-        return result
-
     # stateVariableDeclaration : (keywords+=FinalKeyword)* annotated_type=annotatedTypeName (keywords+=ConstantKeyword)* idf=identifier('=' expr=expression)? ';';
+    # 전역 변수를 스택에 저장함.
     def visitStateVariableDeclaration(self, ctx: SolidityParser.StateVariableDeclarationContext):
         at = self.getResult(ctx.annotatedTypeName())
+        if at.rstrip() != 'address':
+            idf = self.getResult(ctx.identifier())
+            self.vStackPush(idf, at)
+        res = ''
+        for child in ctx.children:
+            res += self.getResult(child) if not isinstance(child, SolidityParser.AnnotatedTypeNameContext) else at
+        return res
+
+    # parameter : (keywords+=FinalKeyword)? annotated_type=annotatedTypeName idf=identifier? ;
+    def visitParameter(self, ctx: SolidityParser.ParameterContext):
+        at = self.visitAnnotatedTypeName(ctx.annotatedTypeName())
         if at.rstrip() != 'address':
             idf = self.getResult(ctx.identifier())
             self.vStackPush(idf, at)

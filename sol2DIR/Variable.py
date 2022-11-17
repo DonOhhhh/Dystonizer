@@ -12,11 +12,11 @@ class KeyValue:
         return self.value_owner
 
 class Variable:
-    def __init__(self, idf, var_type, owner, delegation=None):
-        self.identifier = idf
-        self.type = var_type
-        self.owner = owner
-        self.delegation = delegation
+    def __init__(self):
+        self.identifier = None
+        self.type = None
+        self.owner = None
+        self.delegation = None
         self.key_value = None
 
     def getIdentifier(self):
@@ -30,6 +30,12 @@ class Variable:
 
     def getDelegation(self):
         return self.delegation
+
+    def setIdentifier(self, _idf):
+        self.identifier = _idf
+
+    def setType(self, _type):
+        self.type = _type
 
     def setOwner(self, _owner):
         self.owner = _owner

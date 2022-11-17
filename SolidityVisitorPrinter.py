@@ -1,5 +1,5 @@
 from sol2DIR.Dystonizer import *
-
+from sol_dystoneVisitor import sol_dystoneVisitor
 from antlr4 import *
 import os
 
