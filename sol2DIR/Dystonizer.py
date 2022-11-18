@@ -487,7 +487,7 @@ class DystonizerStep3(DystonizerStep1_2):
         self.fOwner = {1: "hospital", 2: "hospital", 3: "c3"}
         self.vStack = OrderedDict()
         self.ESP = []
-        self.param = {}
+        self.constraint = {}
 
     def insertFunctionNum(self):
         self.function_num += 1
@@ -498,7 +498,7 @@ class DystonizerStep3(DystonizerStep1_2):
 
     def vStackPush(self, _idf: str, _type: str):
         self.ESP[-1] += 1
-        self.vStack[_idf] = (self.stackElemGenerator(_idf, _type))
+        self.vStack[_idf.rstrip()] = (self.stackElemGenerator(_idf, _type))
 
     def vStackClear(self):
         while self.ESP[-1]:
@@ -567,7 +567,7 @@ class DystonizerStep3(DystonizerStep1_2):
     def visitStateVariableDeclaration(self, ctx: SolidityParser.StateVariableDeclarationContext):
         at = self.getResult(ctx.annotatedTypeName())
         if at.rstrip() != 'address':
-            idf = self.getResult(ctx.identifier()).rstrip()
+            idf = self.getResult(ctx.identifier())
             self.vStackPush(idf, at)
         res = ''
         for child in ctx.children:
@@ -578,22 +578,24 @@ class DystonizerStep3(DystonizerStep1_2):
     def visitParameter(self, ctx: SolidityParser.ParameterContext):
         at = self.visitAnnotatedTypeName(ctx.annotatedTypeName())
         if at.rstrip() != 'address':
-            idf = self.visitIdentifier(ctx.identifier()).rstrip()
+            idf = self.visitIdentifier(ctx.identifier())
             self.vStackPush(idf, at)
+        # annotated_type 실행의 반복을 막으면서 문자열을 생성함.
         res = ''
         for child in ctx.children:
             res += self.getResult(child) if not isinstance(child, SolidityParser.AnnotatedTypeNameContext) else at
         return res
 
     # | func=expression '(' args=functionCallArguments ')' # FunctionCallExpr
+    # function call문에 나타나는 변수를 인자와 일체화 함.
     def visitFunctionCallExpr(self, ctx: SolidityParser.FunctionCallExprContext):
         res = self.getResult(ctx)
         if '_reveal' in res:
             _idf, _owner = self.unpackReveal(res)
             res = re.sub(_owner[1:], self.vStack[_idf].getDelegation(), res)
         return res
-    # functionDefinition : 'function' idf=identifier parameters=parameterList modifiers=modifierList
-    #     return_parameters=returnParameters? body=block ;
+
+
 
 # annotatedTypeName : type_name=typeName ('@' privacy_annotation=expression)? ;
 # mapping : 'mapping' '(' key_type=elementaryTypeName ( '!' key_label=identifier )? '=>' value_type=annotatedTypeName ')' ;
