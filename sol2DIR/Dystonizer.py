@@ -2,7 +2,7 @@ from SolidityParser import SolidityParser
 from gen.SolidityVisitor import SolidityVisitor
 from gen.SolidityLexer import SolidityLexer
 from antlr4 import *
-from Variable import *
+from sol2DIR.Variable import *
 from collections import defaultdict, OrderedDict, deque
 import re
 
@@ -485,8 +485,9 @@ class DystonizerStep3(DystonizerStep1_2):
     def __init__(self):
         super(DystonizerStep3, self).__init__()
         self.fOwner = {1: "hospital", 2: "hospital", 3: "c3"}
-        self.vStack = deque()
+        self.vStack = OrderedDict()
         self.ESP = []
+        self.param = {}
 
     def insertFunctionNum(self):
         self.function_num += 1
@@ -497,11 +498,11 @@ class DystonizerStep3(DystonizerStep1_2):
 
     def vStackPush(self, _idf: str, _type: str):
         self.ESP[-1] += 1
-        self.vStack.append(self.stackElemGenerator(_idf, _type))
+        self.vStack[_idf] = (self.stackElemGenerator(_idf, _type))
 
     def vStackClear(self):
         while self.ESP[-1]:
-            self.vStack.pop()
+            self.vStack.popitem(last=True)
             self.ESP[-1] -= 1
         self.ESP.pop()
 
@@ -513,7 +514,7 @@ class DystonizerStep3(DystonizerStep1_2):
             _delegation = ats[ats.rfind('>') + 2:]
             ats = ats[:ats.rfind('>')]
         _type, _value = ats[:ats.rfind('@')], ats[ats.rfind('@') + 1:]
-        return (_type, _value, _delegation)
+        return _type, _value, _delegation
 
     # mapping(address!_t2=>bool@_t3) -> address, _t2, bool, _t3
     def getMappingType_Key_Value(self, mappingTypeStr: str):
@@ -536,6 +537,12 @@ class DystonizerStep3(DystonizerStep1_2):
         result.setOwner(_owner)
         result.setDelegation(_delegation)
         return result
+
+    def unpackReveal(self, revealExpr: str):
+        start = revealExpr.find('_reveal(') + 8
+        end = revealExpr.rfind(')') - 1
+        _expr, _owner = revealExpr[start:end].split(', ')
+        return _expr.split(' ')[0], _owner
 
     # contractdefinition을 할 때 ESP를 push convert가 끝나면 stack clear, ESP를 pop한다.
     def visitContractDefinition(self, ctx: SolidityParser.ContractDefinitionContext):
@@ -560,7 +567,7 @@ class DystonizerStep3(DystonizerStep1_2):
     def visitStateVariableDeclaration(self, ctx: SolidityParser.StateVariableDeclarationContext):
         at = self.getResult(ctx.annotatedTypeName())
         if at.rstrip() != 'address':
-            idf = self.getResult(ctx.identifier())
+            idf = self.getResult(ctx.identifier()).rstrip()
             self.vStackPush(idf, at)
         res = ''
         for child in ctx.children:
@@ -571,12 +578,22 @@ class DystonizerStep3(DystonizerStep1_2):
     def visitParameter(self, ctx: SolidityParser.ParameterContext):
         at = self.visitAnnotatedTypeName(ctx.annotatedTypeName())
         if at.rstrip() != 'address':
-            idf = self.getResult(ctx.identifier())
+            idf = self.visitIdentifier(ctx.identifier()).rstrip()
             self.vStackPush(idf, at)
         res = ''
         for child in ctx.children:
             res += self.getResult(child) if not isinstance(child, SolidityParser.AnnotatedTypeNameContext) else at
         return res
+
+    # | func=expression '(' args=functionCallArguments ')' # FunctionCallExpr
+    def visitFunctionCallExpr(self, ctx: SolidityParser.FunctionCallExprContext):
+        res = self.getResult(ctx)
+        if '_reveal' in res:
+            _idf, _owner = self.unpackReveal(res)
+            res = re.sub(_owner[1:], self.vStack[_idf].getDelegation(), res)
+        return res
+    # functionDefinition : 'function' idf=identifier parameters=parameterList modifiers=modifierList
+    #     return_parameters=returnParameters? body=block ;
 
 # annotatedTypeName : type_name=typeName ('@' privacy_annotation=expression)? ;
 # mapping : 'mapping' '(' key_type=elementaryTypeName ( '!' key_label=identifier )? '=>' value_type=annotatedTypeName ')' ;
