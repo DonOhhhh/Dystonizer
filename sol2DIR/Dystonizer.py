@@ -356,6 +356,8 @@ class DystoneizerFormatter(DystonizerBase):
 
     def visitSourceUnit(self, ctx: SolidityParser.SourceUnitContext):
         res = self.removeRedundantSpace(self.getResult(ctx).replace('<EOF>', ''))
+        with open('output/dystone_output.stn', 'w') as f:
+            f.write(res)
         print(res)
         return res
 
@@ -466,6 +468,7 @@ class DystonizerStep1_2(DystoneizerFormatter):
         return lhs.rstrip() + ' ' + op + ' ' + '_reveal(' + rhs + ', ' + self.insertVariableNum() + ')'
 
     # 삼항 연산자를 _reveal로 감싸줌.
+    # | cond=expression '?' then_expr=expression ':' else_expr=expression # IteExpr
     def visitIteExpr(self, ctx: SolidityParser.IteExprContext):
         res = self.getResult(ctx)
         return '_reveal(' + res + ', ' + self.insertVariableNum() + ')'
@@ -487,7 +490,7 @@ class DystonizerStep3(DystonizerStep1_2):
         self.fOwner = {1: "hospital", 2: "hospital", 3: "c3"}
         self.vStack = OrderedDict()
         self.ESP = []
-        self.constraint = {}
+        self.relation = {}
 
     def insertFunctionNum(self):
         self.function_num += 1
@@ -498,18 +501,47 @@ class DystonizerStep3(DystonizerStep1_2):
 
     def vStackPush(self, _idf: str, _type: str):
         self.ESP[-1] += 1
-        self.vStack[_idf.rstrip()] = (self.stackElemGenerator(_idf, _type))
+        V = self.stackElemGenerator(_idf, _type) if '@' in _type else Variable(_idf, )
+        self.vStack[_idf.rstrip()] = V
+        self.relation[V.getOwner()] = V
 
-    def vStackClear(self):
+    def vStackClear(self, originalStr: str = ''):
+        if originalStr:
+            owners = re.findall('_t\\d*', originalStr)
+            for owner in owners:
+                if owner in self.relation.keys():
+                    originalStr = re.sub(owner, self.relation[owner].getOwner(), originalStr)
+
+            remainedOwners = sorted(list(set(re.findall('_t\\d*', originalStr))))
+
+            contraints = {}
+            for idf in self.vStack.keys():
+                if self.vStack[idf].getOwner() in remainedOwners:
+                    contraints[self.vStack[idf].getOwner()] = self.vStack[idf].getConstraint()
+                    if self.vStack[idf].getDel():
+                        contraints[self.vStack[idf].getDel()] = [self.vStack['me/all'].getOwner()]
+
+            constraintStr = ''
+            constraintStr += ' @@ { { ' + ', '.join(remainedOwners) + ' }\n' if remainedOwners else ' @@ {\n'
+            constraintStr += self.TAP * (self.tap_cnt + 1) + f'me == {self.fOwner[self.function_num]}\n'
+            for owner in sorted(contraints.keys()):
+                constraintStr += self.TAP * (self.tap_cnt + 1)
+                constraintStr += f'{owner} == ' + '/'.join(contraints[owner]) + '\n'
+            constraintStr = constraintStr.replace('_', '')
+
+            originalStr = originalStr[:-1] + constraintStr + self.getTapStr() + '}\n'
+
         while self.ESP[-1]:
             self.vStack.popitem(last=True)
             self.ESP[-1] -= 1
         self.ESP.pop()
 
-    # type@_t1 => type, _t1
+        return originalStr
+
+    # type@_t1>@_t2 => type, _t1, _t2
     def getAnnotatedType_Type_Owner(self, ats: str):
         ats = ats.replace(' ', '')
-        _delegation = None
+        _delegation = ''
         if '>@' in ats:
             _delegation = ats[ats.rfind('>') + 2:]
             ats = ats[:ats.rfind('>')]
@@ -533,70 +565,112 @@ class DystonizerStep3(DystonizerStep1_2):
             result.setKeyValue(*self.getMappingType_Key_Value(_type))
             _type = 'mapping'
         result.setIdentifier(_idf)
-        result.setType(_type)
-        result.setOwner(_owner)
-        result.setDelegation(_delegation)
+        if _type:
+            result.setType(_type)
+        if _delegation:
+            result.setOwner(_delegation)
+            result.setDel(_owner)
+        else:
+            result.setOwner(_owner)
         return result
 
+    # expr안에 있는 모든 _reveal의 소유자와 idf를 돌려줌.
     def unpackReveal(self, revealExpr: str):
+        idf_owner_dict = {}
         start = revealExpr.find('_reveal(') + 8
-        end = revealExpr.rfind(')') - 1
-        _expr, _owner = revealExpr[start:end].split(', ')
-        return _expr.split(' ')[0], _owner
+        middle = revealExpr.rfind(',')
+        end = revealExpr.find(')', middle)
+        revealExpr = revealExpr[start:end]
+        i = revealExpr.rfind(',')
+        _expr, _revealOwner = revealExpr[:i], revealExpr[i + 1:]
+        # 안쪽에 나타난 reveal에서 변수들과 reveal 대상 소유자를 추가해줌.
+        if '_reveal' in _expr:
+            _idf_owner_dict = self.unpackReveal(_expr)
+            idf_owner_dict.update(_idf_owner_dict)
+        # expr에서 현재 함수내에서 쓰이는 idf를 찾아서 넘겨줌
+        idfs = _expr.replace(' ','').split('==') if '==' in _expr else _expr.split()
+        for idf in idfs:
+            if idf in self.vStack.keys():
+                idf_owner_dict[idf] = _revealOwner.strip()[1:]
+        return idf_owner_dict
 
     # contractdefinition을 할 때 ESP를 push convert가 끝나면 stack clear, ESP를 pop한다.
     def visitContractDefinition(self, ctx: SolidityParser.ContractDefinitionContext):
         self.vStackInit()
+        self.vStackPush('me/all', '@me/all')
         res = super().visitContractDefinition(ctx)
         self.vStackClear()
         return res
 
-    # Function에 들어갈 때 ESP를 push
-    def visitParameterList(self, ctx: SolidityParser.ParameterListContext):
+    def visitConstructorDefinition(self, ctx: SolidityParser.ConstructorDefinitionContext):
         self.vStackInit()
-        return self.getResult(ctx)
+        res = super().visitConstructorDefinition(ctx)
+        res = self.vStackClear(res)
+        return res
 
+    # Function에 들어갈 때 ESP를 push
     # Function이 끝날 때 stack clear, ESP를 pop
-    def visitBlock(self, ctx: SolidityParser.BlockContext):
-        res = self.getResult(ctx)
-        self.vStackClear()
+    def visitFunctionDefinition(self, ctx: SolidityParser.FunctionDefinitionContext):
+        self.vStackInit()
+        res = super().visitFunctionDefinition(ctx)
+        res = self.vStackClear(res)
         return res
 
     # stateVariableDeclaration : (keywords+=FinalKeyword)* annotated_type=annotatedTypeName (keywords+=ConstantKeyword)* idf=identifier('=' expr=expression)? ';';
     # 전역 변수를 스택에 저장함.
     def visitStateVariableDeclaration(self, ctx: SolidityParser.StateVariableDeclarationContext):
-        at = self.getResult(ctx.annotatedTypeName())
-        if at.rstrip() != 'address':
-            idf = self.getResult(ctx.identifier())
-            self.vStackPush(idf, at)
         res = ''
         for child in ctx.children:
-            res += self.getResult(child) if not isinstance(child, SolidityParser.AnnotatedTypeNameContext) else at
+            # annotated_type 실행의 반복을 막으면서 문자열을 생성함.
+            if isinstance(child, SolidityParser.AnnotatedTypeNameContext):
+                at = self.visitAnnotatedTypeName(ctx.annotatedTypeName())
+                if at.rstrip() != 'address':
+                    idf = self.visitIdentifier(ctx.identifier())
+                    self.vStackPush(idf.rstrip(), at)
+                res += at
+            else:
+                res += self.getResult(child)
         return res
 
     # parameter : (keywords+=FinalKeyword)? annotated_type=annotatedTypeName idf=identifier? ;
     def visitParameter(self, ctx: SolidityParser.ParameterContext):
+        final = self.visitTerminal(ctx.FinalKeyword()) if ctx.FinalKeyword() else ''
         at = self.visitAnnotatedTypeName(ctx.annotatedTypeName())
+        idf = self.visitIdentifier(ctx.identifier())
         if at.rstrip() != 'address':
-            idf = self.visitIdentifier(ctx.identifier())
-            self.vStackPush(idf, at)
-        # annotated_type 실행의 반복을 막으면서 문자열을 생성함.
-        res = ''
-        for child in ctx.children:
-            res += self.getResult(child) if not isinstance(child, SolidityParser.AnnotatedTypeNameContext) else at
-        return res
+            self.vStackPush(idf.rstrip(), at)
+            self.vStack[idf.rstrip()].appendConstraint(self.vStack['me/all'])
+        return final + at + idf
 
-    # | func=expression '(' args=functionCallArguments ')' # FunctionCallExpr
-    # function call문에 나타나는 변수를 인자와 일체화 함.
-    def visitFunctionCallExpr(self, ctx: SolidityParser.FunctionCallExprContext):
+    def visitStatement(self, ctx: SolidityParser.StatementContext):
         res = self.getResult(ctx)
-        if '_reveal' in res:
-            _idf, _owner = self.unpackReveal(res)
-            res = re.sub(_owner[1:], self.vStack[_idf].getDelegation(), res)
-        return res
+        tmpRes = res.strip()
+        if isinstance(ctx.getChild(0).getChild(0).getChild(0), SolidityParser.FunctionCallExprContext):
+            if '_reveal' in tmpRes:
+                expr_reveal_owner_relationship = self.unpackReveal(tmpRes[tmpRes.find('_reveal'):-2])
+                # 1. owner간의 변환 관계를 저장함.
+                for idf, owner in expr_reveal_owner_relationship.items():
+                    self.relation[owner] = self.vStack[idf]
+        elif isinstance(ctx.getChild(0).getChild(0).getChild(0), SolidityParser.AssignmentExprContext) and \
+                self.isParentExist(ctx, SolidityParser.FunctionDefinitionContext):
+            lhs, rhs = tmpRes.split('=')
+            expr_reveal_owner_relationship = self.unpackReveal(rhs)
+            # 1. owner간의 변환 관계를 저장함.
+            for idf, owner in expr_reveal_owner_relationship.items():
+                self.relation[owner] = self.vStack[idf]
+            # 2. lhs가 mapping 변수라면 rhs와 lhs에 나타난 변수들의 owner를 재설정함
+            if '[' in lhs:
+                lhs = lhs.replace(' ', '')
+                mappingVariable = self.vStack[lhs[:lhs.find('[')]].key_value
+                keyOwner, valueOwner = mappingVariable.getKeyOwner(), mappingVariable.getValueOwner()
+                lhs = lhs[lhs.find('[') + 1:lhs.find(']')]
+                for idf, owner in expr_reveal_owner_relationship.items():
+                    self.vStack[idf].setOwner(valueOwner)
+                    self.vStackPush(lhs, 'address@' + keyOwner)
+            # 3. V간 constraint를 저장함.
+            for idf in expr_reveal_owner_relationship.keys():
+                if idf != lhs.rstrip():
+                    self.vStack[idf].appendConstraint(self.vStack[lhs.rstrip()])
+                    self.vStack[lhs.rstrip()].appendConstraint(self.vStack[idf])
 
-
-
-# annotatedTypeName : type_name=typeName ('@' privacy_annotation=expression)? ;
-# mapping : 'mapping' '(' key_type=elementaryTypeName ( '!' key_label=identifier )? '=>' value_type=annotatedTypeName ')' ;
-# elementaryTypeName : name=('address' | 'address payable' | 'bool' | Int | Uint | 'var' | 'string' | 'bytes' | 'byte' | Byte | Fixed | Ufixed ) ;
+        return self.getTapStr() + res

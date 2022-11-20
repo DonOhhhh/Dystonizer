@@ -12,12 +12,13 @@ class KeyValue:
         return self.value_owner
 
 class Variable:
-    def __init__(self):
-        self.identifier = None
-        self.type = None
-        self.owner = None
-        self.delegation = None
+    def __init__(self, _idf=None, _type=None, _owner=None, _del=None):
+        self.identifier = _idf
+        self.type = _type
+        self.owner = _owner
         self.key_value = None
+        self.delagetedFrom = _del
+        self.constraint = []
 
     def getIdentifier(self):
         return self.identifier
@@ -28,8 +29,8 @@ class Variable:
     def getOwner(self):
         return self.owner
 
-    def getDelegation(self):
-        return self.delegation
+    def getDel(self):
+        return self.delagetedFrom
 
     def setIdentifier(self, _idf):
         self.identifier = _idf
@@ -40,8 +41,20 @@ class Variable:
     def setOwner(self, _owner):
         self.owner = _owner
 
-    def setDelegation(self, _del):
-        self.delegation = _del
-
     def setKeyValue(self, key_type, key_owner, value_type, value_owner):
         self.key_value = KeyValue(key_type, key_owner, value_type, value_owner)
+
+    def setDel(self, _del):
+        self.delagetedFrom = _del
+
+    def getConstraint(self):
+        res = []
+        for V in self.constraint:
+            res.append(V.getOwner())
+        return sorted(res)
+
+    def appendConstraint(self, V):
+        self.constraint.append(V)
+
+    def clearConstraint(self):
+        self.constraint = []
