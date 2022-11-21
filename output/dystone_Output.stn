@@ -26,12 +26,10 @@ contract MedStats {
 	}
 
 	@c3
-	function check(bool@_t11>@_t12 r) {
-		require(_reveal(r == risk[me], @_t12));
-	} @@ { { t11, t12 }
+	function check(bool@_t11>@_all r) {
+		require(_reveal(r == risk[me], @_all));
+	} @@ { { t11 }
 		me == c3
-		t11 == me/all
-		t12 == me/all
 	}
 }
  

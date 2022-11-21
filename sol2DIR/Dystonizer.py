@@ -648,9 +648,11 @@ class DystonizerStep3(DystonizerStep1_2):
         if isinstance(ctx.getChild(0).getChild(0).getChild(0), SolidityParser.FunctionCallExprContext):
             if '_reveal' in tmpRes:
                 expr_reveal_owner_relationship = self.unpackReveal(tmpRes[tmpRes.find('_reveal'):-2])
-                # 1. owner간의 변환 관계를 저장함.
                 for idf, owner in expr_reveal_owner_relationship.items():
+                    # 1. owner간의 변환 관계를 저장함.
                     self.relation[owner] = self.vStack[idf]
+                    # 2. 소유자 관계를 재설정함.
+                    self.vStack[idf].setOwner('_all')
         elif isinstance(ctx.getChild(0).getChild(0).getChild(0), SolidityParser.AssignmentExprContext) and \
                 self.isParentExist(ctx, SolidityParser.FunctionDefinitionContext):
             lhs, rhs = tmpRes.split('=')
