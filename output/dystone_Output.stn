@@ -30,6 +30,7 @@ contract MedStats {
 		require(_reveal(r == risk[me], @_all));
 	} @@ { { t11 }
 		me == c3
+		t11 == me/all
 	}
 }
  
