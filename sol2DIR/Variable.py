@@ -17,7 +17,7 @@ class Variable:
         self.type = _type
         self.owner = _owner
         self.key_value = None
-        self.delagetedFrom = _del
+        self.delegetedFrom = _del
         self.constraint = []
 
     def getIdentifier(self):
@@ -30,7 +30,7 @@ class Variable:
         return self.owner
 
     def getDel(self):
-        return self.delagetedFrom
+        return self.delegetedFrom
 
     def setIdentifier(self, _idf):
         self.identifier = _idf
@@ -45,7 +45,7 @@ class Variable:
         self.key_value = KeyValue(key_type, key_owner, value_type, value_owner)
 
     def setDel(self, _del):
-        self.delagetedFrom = _del
+        self.delegetedFrom = _del
 
     def getConstraint(self):
         res = []

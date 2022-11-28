@@ -1,5 +1,5 @@
 from SolidityParser import SolidityParser
-from gen.SolidityVisitor import SolidityVisitor
+from SolidityVisitor import SolidityVisitor
 from gen.SolidityLexer import SolidityLexer
 from antlr4 import *
 from sol2DIR.Variable import *
@@ -317,7 +317,7 @@ class DystonizerBase(SolidityVisitor):
         return self.getResult(ctx)
 
 
-class DystoneizerFormatter(DystonizerBase):
+class DystonizerFormatter(DystonizerBase):
 
     def __init__(self):
         self.tail = defaultdict(lambda: ' ')
@@ -395,7 +395,7 @@ class DystoneizerFormatter(DystonizerBase):
         return res
 
 
-class DystonizerStep1_2(DystoneizerFormatter):
+class DystonizerStep1_2(DystonizerFormatter):
 
     def __init__(self):
         super(DystonizerStep1_2, self).__init__()
@@ -501,7 +501,7 @@ class DystonizerStep3(DystonizerStep1_2):
 
     def vStackPush(self, _idf: str, _type: str):
         self.ESP[-1] += 1
-        V = self.stackElemGenerator(_idf, _type) if '@' in _type else Variable(_idf, )
+        V = self.stackElemGenerator(_idf, _type) if '@' in _type else Variable(_idf)
         self.vStack[_idf.rstrip()] = V
         self.relation[V.getOwner()] = V
 
@@ -588,7 +588,7 @@ class DystonizerStep3(DystonizerStep1_2):
             _idf_owner_dict = self.unpackReveal(_expr)
             idf_owner_dict.update(_idf_owner_dict)
         # expr에서 현재 함수내에서 쓰이는 idf를 찾아서 넘겨줌
-        idfs = _expr.replace(' ','').split('==') if '==' in _expr else _expr.split()
+        idfs = _expr.replace(' ', '').split('==') if '==' in _expr else _expr.split()
         for idf in idfs:
             if idf in self.vStack.keys():
                 idf_owner_dict[idf] = _revealOwner.strip()[1:]
@@ -642,20 +642,10 @@ class DystonizerStep3(DystonizerStep1_2):
             self.vStack[idf.rstrip()].appendConstraint(self.vStack['me/all'])
         return final + at + idf
 
-    def visitStatement(self, ctx: SolidityParser.StatementContext):
-        res = self.getResult(ctx)
-        tmpRes = res.strip()
-        if isinstance(ctx.getChild(0).getChild(0).getChild(0), SolidityParser.FunctionCallExprContext):
-            if '_reveal' in tmpRes:
-                expr_reveal_owner_relationship = self.unpackReveal(tmpRes[tmpRes.find('_reveal'):-2])
-                idf, owner = list(expr_reveal_owner_relationship.items())[0]
-                # 1. owner간의 변환 관계를 저장함.
-                self.relation[owner] = self.vStack[idf]
-                # 2. 소유자 관계를 재설정함.
-                self.vStack[idf].setOwner('_all')
-        elif isinstance(ctx.getChild(0).getChild(0).getChild(0), SolidityParser.AssignmentExprContext) and \
-                self.isParentExist(ctx, SolidityParser.FunctionDefinitionContext):
-            lhs, rhs = tmpRes.split('=')
+    def visitAssignmentExpr(self, ctx: SolidityParser.AssignmentExprContext):
+        res = super().visitAssignmentExpr(ctx)
+        if '_reveal' in res:
+            lhs, rhs = res.split('=')
             expr_reveal_owner_relationship = self.unpackReveal(rhs)
             # 1. owner간의 변환 관계를 저장함.
             for idf, owner in expr_reveal_owner_relationship.items():
@@ -674,5 +664,21 @@ class DystonizerStep3(DystonizerStep1_2):
                 if idf != lhs.rstrip():
                     self.vStack[idf].appendConstraint(self.vStack[lhs.rstrip()])
                     self.vStack[lhs.rstrip()].appendConstraint(self.vStack[idf])
+        return res
 
-        return self.getTapStr() + res
+    def visitFunctionCallExpr(self, ctx: SolidityParser.FunctionCallExprContext):
+        res = super().visitFunctionCallExpr(ctx)
+        if '_reveal' in res:
+            expr_reveal_owner_relationship = self.unpackReveal(res[res.find('_reveal'):-2])
+            idf, owner = list(expr_reveal_owner_relationship.items())[0]
+            # 1. owner간의 변환 관계를 저장함.
+            self.relation[owner] = self.vStack[idf]
+            # 2. 소유자 관계를 재설정함.
+            self.vStack[idf].setOwner('_all')
+        return res
+
+
+class DystonizerStep3_simplified(DystonizerStep3):
+
+    def visitFunctionDefinition(self, ctx: SolidityParser.FunctionDefinitionContext):
+        pass
