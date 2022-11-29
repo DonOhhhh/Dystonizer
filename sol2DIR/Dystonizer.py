@@ -678,5 +678,46 @@ class DystonizerStep3(DystonizerStep1_2):
 
 class DystonizerStep3_simplified(DystonizerStep3):
 
+    def vStackClear(self, originalStr: str = ''):
+        if originalStr:
+            # 1. 모든 _tx 변수들을 relation에 있는 값으로 대체
+            owners = re.findall('_t\\d*', originalStr)
+            for owner in owners:
+                if owner in self.relation.keys():
+                    originalStr = re.sub(owner, self.relation[owner].getOwner(), originalStr)
+
+            # 2. 살아남은 _tx 변수들을 추출
+            remainedOwners = sorted(list(set(re.findall('_t\\d*', originalStr))))
+
+            # 3. 살아남은 _tx 변수들의 제약사항을 각 소유자에 맞게 저장해준다.
+            contraints = {}
+            for idf in self.vStack.keys():
+                if self.vStack[idf].getOwner() in remainedOwners:
+                    contraints[self.vStack[idf].getOwner()] = self.vStack[idf].getConstraint()
+                if self.vStack[idf].getDel() in remainedOwners:
+                    contraints[self.vStack[idf].getDel()] = [self.vStack['me/all'].getOwner()]
+
+            constraintStr = ''
+            constraintStr += ' @@ { { ' + ', '.join(remainedOwners) + ' }\n' if remainedOwners else ' @@ {\n'
+            constraintStr += self.TAP * (self.tap_cnt + 1) + f'me == {self.fOwner[self.function_num]}\n'
+
+            # 4. 원래 문자열 + 제약사항 + tap
+            for owner in sorted(contraints.keys()):
+                constraintStr += self.TAP * (self.tap_cnt + 1)
+                constraintStr += f'{owner} == ' + '/'.join(contraints[owner]) + '\n'
+            constraintStr = constraintStr.replace('_', '')
+
+            originalStr = constraintStr + self.getTapStr() + '}\n'
+
+        while self.ESP[-1]:
+            self.vStack.popitem(last=True)
+            self.ESP[-1] -= 1
+        self.ESP.pop()
+
+        return originalStr
+
     def visitFunctionDefinition(self, ctx: SolidityParser.FunctionDefinitionContext):
-        pass
+        self.vStackInit()
+        res = super().visitFunctionDefinition(ctx)
+        fname = self.getResult(ctx.identifier()).strip()
+        return fname + res

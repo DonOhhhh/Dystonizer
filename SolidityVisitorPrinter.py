@@ -9,7 +9,7 @@ def convert(inputfile: FileStream):
     token_stream = CommonTokenStream(lexer)
     parser = SolidityParser(token_stream)
     tree = parser.sourceUnit()
-    DystonizerStep3().visit(tree)
+    DystonizerStep3_simplified().visit(tree)
 
 
 def main():
