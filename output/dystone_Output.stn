@@ -6,12 +6,19 @@ contract MedStats {
 	mapping(address!_t3 => bool@_t4)@_t5 risk;
 
 	@hospital
-	 @@ {
+	constructor() public {
+		hospital = me;
+		count = 0;
+	} @@ {
 		me == hospital
 	}
 
 	@hospital
-	record @@ { { t2, t4, t6 }
+	function record(address pat, bool@_t6>@_t4 r) public {
+		require(hospital == me);
+		risk[pat] = _reveal(r, @_t4);
+		count = _reveal(count + (_reveal(r ? 1 : 0, @_t4)), @_t2);
+	} @@ { { t2, t4, t6 }
 		me == hospital
 		t2 == t4
 		t4 == t2/t3/me/all
@@ -19,7 +26,9 @@ contract MedStats {
 	}
 
 	@c3
-	check @@ { { t11 }
+	function check(bool@_t11>@_all r) {
+		require(_reveal(r == risk[me], @_all));
+	} @@ { { t11 }
 		me == c3
 		t11 == me/all
 	}
